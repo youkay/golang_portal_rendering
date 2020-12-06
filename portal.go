@@ -202,7 +202,6 @@ func LoadData() {
 	fmt.Printf("player: %v\n", pl)
 }
 
-// var surface *sdl.Surface = nil
 var renderer *sdl.Renderer = nil
 
 // vline 最上部、中部、最下部で異なる色を使って水平方向に線を引く
@@ -432,12 +431,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	/*
-		surface, err = window.GetSurface()
-		if err != nil {
-			panic(err)
-		}
-	*/
 
 	renderer, err = sdl.CreateRenderer(window, -1, 0)
 	if err != nil {
