@@ -49,11 +49,19 @@ func min(a, b float32) float32 {
 	return b
 }
 
+func minInt32(a, b int32) int32 {
+	return int32(min(float32(a), float32(b)))
+}
+
 func max(a, b float32) float32 {
 	if a < b {
 		return b
 	}
 	return a
+}
+
+func maxInt32(a, b int32) int32 {
+	return int32(max(float32(a), float32(b)))
 }
 
 // 値をmi~maの範囲で制限する
@@ -253,103 +261,156 @@ func MovePlayer(dx, dy float32) {
 
 // DrawScreen 描画処理
 func DrawScreen() {
-	now := struct{ sectorno, sx1, sx2 int32 }{pl.sector, 0, W - 1}
-	ytop := make([]int32, W)
+	const MaxQueue = 32
+	type renderSector struct {
+		sectorNo, sx1, sx2 int32
+		ytop, ybottom      []int32
+	}
+	var queue []renderSector = []renderSector{}
+	var renderedSector []int32 = []int32{}
 	ybottom := make([]int32, W)
 	for x := int32(0); x < W; x++ {
 		ybottom[x] = H - 1
 	}
+	queue = append(queue, renderSector{sectorNo: pl.sector, sx1: 0, sx2: W - 1, ytop: make([]int32, W), ybottom: ybottom})
 
-	var sect *sector = &sectors[now.sectorno]
-	for s := int32(0); s < int32(sect.npoints); s++ {
-		vx1 := sect.vertex[s+1].X - pl.where.x
-		vy1 := sect.vertex[s+1].Y - pl.where.y
-		vx2 := sect.vertex[s].X - pl.where.x
-		vy2 := sect.vertex[s].Y - pl.where.y
-
-		pcos := pl.anglecos
-		psin := pl.anglesin
-		tx1 := vx1*psin - vy1*pcos
-		tz1 := vx1*pcos + vy1*psin
-		tx2 := vx2*psin - vy2*pcos
-		tz2 := vx2*pcos + vy2*psin
-
-		if tz1 <= 0 && tz2 <= 0 {
-			// プレイヤーの正面に存在しない壁は描画しない
-			continue
+	for {
+		if len(queue) == 0 {
+			break
 		}
+		now := queue[0]
+		queue = queue[1:]
+		var sect *sector = &sectors[now.sectorNo]
 
-		if tz1 <= 0 || tz2 <= 0 {
-			// 見切れている場合はIntersectで求めたFOVとの交点まで描画を行う
-			nearz := ParseToFloat32("1e-4")
-			farz := float32(5)
-			nearside := ParseToFloat32("1e-5")
-			farside := ParseToFloat32("20.")
-			i1x, i1y := Intersect(tx1, tz1, tx2, tz2, -nearside, nearz, -farside, farz)
-			i2x, i2y := Intersect(tx1, tz1, tx2, tz2, nearside, nearz, farside, farz)
-
-			if tz1 < nearz {
-				if i1y > 0 {
-					tx1 = i1x
-					tz1 = i1y
-				} else {
-					tx1 = i2x
-					tz1 = i2y
-				}
-			}
-			if tz2 < nearz {
-				if i1y > 0 {
-					tx2 = i1x
-					tz2 = i1y
-				} else {
-					tx2 = i2x
-					tz2 = i2y
-				}
+		for _, rendered := range renderedSector {
+			if rendered == now.sectorNo {
+				continue
 			}
 		}
+		renderedSector = append(renderedSector, now.sectorNo)
+		for s := int32(0); s < int32(sect.npoints); s++ {
+			vx1 := sect.vertex[s+1].X - pl.where.x
+			vy1 := sect.vertex[s+1].Y - pl.where.y
+			vx2 := sect.vertex[s].X - pl.where.x
+			vy2 := sect.vertex[s].Y - pl.where.y
 
-		xscale1 := hFov / tz1
-		yscale1 := vFov / tz1
-		x1 := (W / 2) - int32(tx1*xscale1)
-		xscale2 := hFov / tz2
-		yscale2 := vFov / tz2
-		x2 := (W / 2) - int32(tx2*xscale2)
+			pcos := pl.anglecos
+			psin := pl.anglesin
+			tx1 := vx1*psin - vy1*pcos
+			tz1 := vx1*pcos + vy1*psin
+			tx2 := vx2*psin - vy2*pcos
+			tz2 := vx2*pcos + vy2*psin
 
-		if x1 >= x2 || x2 < now.sx1 || x1 > now.sx2 {
-			// 視界外は描画しない
-			continue
-		}
+			if tz1 <= 0 && tz2 <= 0 {
+				// プレイヤーの正面に存在しない壁は描画しない
+				continue
+			}
 
-		yceil := sect.ceil - pl.where.z
-		yfloor := sect.floor - pl.where.z
+			if tz1 <= 0 || tz2 <= 0 {
+				// 見切れている場合はIntersectで求めたFOVとの交点まで描画を行う
+				nearz := ParseToFloat32("1e-4")
+				farz := float32(5)
+				nearside := ParseToFloat32("1e-5")
+				farside := ParseToFloat32("20.")
+				i1x, i1y := Intersect(tx1, tz1, tx2, tz2, -nearside, nearz, -farside, farz)
+				i2x, i2y := Intersect(tx1, tz1, tx2, tz2, nearside, nearz, farside, farz)
 
-		neighbor := sect.neighbors[s]
+				if tz1 < nearz {
+					if i1y > 0 {
+						tx1 = i1x
+						tz1 = i1y
+					} else {
+						tx1 = i2x
+						tz1 = i2y
+					}
+				}
+				if tz2 < nearz {
+					if i1y > 0 {
+						tx2 = i1x
+						tz2 = i1y
+					} else {
+						tx2 = i2x
+						tz2 = i2y
+					}
+				}
+			}
 
-		y1a := (H / 2) - int32(yceil*yscale1)
-		y1b := (H / 2) - int32(yfloor*yscale1)
-		y2a := (H / 2) - int32(yceil*yscale2)
-		y2b := (H / 2) - int32(yfloor*yscale2)
+			xscale1 := hFov / tz1
+			yscale1 := vFov / tz1
+			x1 := (W / 2) - int32(tx1*xscale1)
+			xscale2 := hFov / tz2
+			yscale2 := vFov / tz2
+			x2 := (W / 2) - int32(tx2*xscale2)
 
-		beginx := max(float32(x1), float32(now.sx1))
-		endx := min(float32(x2), float32(now.sx2))
+			if x1 >= x2 || x2 < now.sx1 || x1 > now.sx2 {
+				// 視界外は描画しない
+				continue
+			}
 
-		for x := int32(beginx); x <= int32(endx); x++ {
-			ya := (x-x1)*(y2a-y1a)/(x2-x1) + y1a
-			cya := clampInt32(ya, ytop[x], ybottom[x])
-			yb := (x-x1)*(y2b-y1b)/(x2-x1) + y1b
-			cyb := clampInt32(yb, ytop[x], ybottom[x])
+			yceil := sect.ceil - pl.where.z
+			yfloor := sect.floor - pl.where.z
 
-			vline(x, ytop[x], cya-1, color.RGBA{R: 128, G: 128, B: 128, A: 255}, color.RGBA{R: 212, G: 212, B: 212, A: 255}, color.RGBA{R: 128, G: 128, B: 128, A: 255})
-			vline(x, cyb+1, ybottom[x], color.RGBA{R: 0, G: 0, B: 255, A: 255}, color.RGBA{R: 0, G: 0, B: 170, A: 255}, color.RGBA{R: 0, G: 0, B: 255, A: 255})
+			neighbor := sect.neighbors[s]
 
+			y1a := (H / 2) - int32(yceil*yscale1)
+			y1b := (H / 2) - int32(yfloor*yscale1)
+			y2a := (H / 2) - int32(yceil*yscale2)
+			y2b := (H / 2) - int32(yfloor*yscale2)
+
+			var nyceil float32 = 0
+			var nyfloor float32 = 0
 			if neighbor >= 0 {
-				vline(x, cya, cyb, color.RGBA{R: 0, G: 255, B: 0, A: 255}, color.RGBA{R: 255, G: 0, B: 0, A: 255}, color.RGBA{R: 0, G: 255, B: 0, A: 255})
-			} else {
-				middleColor := color.RGBA{R: 170, G: 170, B: 170, A: 255}
-				if x == x1 || x == x2 {
-					middleColor = color.RGBA{R: 0, G: 0, B: 255, A: 255}
+				nyceil = sectors[neighbor].ceil - pl.where.z
+				nyfloor = sectors[neighbor].floor - pl.where.z
+			}
+			ny1a := float32(H/2) - nyceil*yscale1
+			ny1b := float32(H/2) - nyfloor*yscale1
+			ny2a := float32(H/2) - nyceil*yscale2
+			ny2b := float32(H/2) - nyfloor*yscale2
+
+			beginx := max(float32(x1), float32(now.sx1))
+			endx := min(float32(x2), float32(now.sx2))
+
+			nextYTop := make([]int32, W)
+			nextYBottom := make([]int32, W)
+			for x := int32(beginx); x <= int32(endx); x++ {
+				ya := (x-x1)*(y2a-y1a)/(x2-x1) + y1a
+				cya := clampInt32(ya, now.ytop[x], now.ybottom[x])
+				yb := (x-x1)*(y2b-y1b)/(x2-x1) + y1b
+				cyb := clampInt32(yb, now.ytop[x], now.ybottom[x])
+
+				vline(x, now.ytop[x], cya-1, color.RGBA{R: 128, G: 128, B: 128, A: 255}, color.RGBA{R: 212, G: 212, B: 212, A: 255}, color.RGBA{R: 128, G: 128, B: 128, A: 255})
+				vline(x, cyb+1, now.ybottom[x], color.RGBA{R: 0, G: 0, B: 255, A: 255}, color.RGBA{R: 0, G: 0, B: 170, A: 255}, color.RGBA{R: 0, G: 0, B: 255, A: 255})
+
+				if neighbor >= 0 {
+					// vline(x, cya, cyb, color.RGBA{R: 0, G: 255, B: 0, A: 255}, color.RGBA{R: 255, G: 0, B: 0, A: 255}, color.RGBA{R: 0, G: 255, B: 0, A: 255})
+
+					// 次のセクターより今のセクターの壁が高い/床が低い場合は壁を描画する
+					nya := (x-x1)*int32(ny2a-ny1a)/(x2-x1) + int32(ny1a)
+					cnya := clampInt32(nya, now.ytop[x], now.ybottom[x])
+					nyb := (x-x1)*int32(ny2b-ny1b)/(x2-x1) + int32(ny1b)
+					cnyb := clampInt32(nyb, now.ytop[x], now.ybottom[x])
+
+					middleColor := color.RGBA{R: 170, G: 170, B: 170, A: 255}
+					if x == x1 || x == x2 {
+						middleColor = color.RGBA{R: 0, G: 0, B: 255, A: 255}
+					}
+					vline(x, cya, int32(cnya)-1, color.RGBA{R: 0, G: 0, B: 0, A: 255}, middleColor, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+					vline(x, int32(cnyb)+1, cyb, color.RGBA{R: 0, G: 0, B: 0, A: 255}, middleColor, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+
+					nextYTop[x] = clampInt32(maxInt32(cya, cnya), now.ytop[x], H-1)
+					nextYBottom[x] = clampInt32(minInt32(cyb, cnyb), 0, now.ybottom[x])
+				} else {
+					middleColor := color.RGBA{R: 170, G: 170, B: 170, A: 255}
+					if x == x1 || x == x2 {
+						middleColor = color.RGBA{R: 0, G: 0, B: 255, A: 255}
+					}
+					vline(x, cya, cyb, color.RGBA{R: 0, G: 0, B: 0, A: 255}, middleColor, color.RGBA{R: 0, G: 0, B: 0, A: 255})
 				}
-				vline(x, cya, cyb, color.RGBA{R: 0, G: 0, B: 0, A: 255}, middleColor, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+			}
+
+			if neighbor >= 0 && endx >= beginx && len(queue) < MaxQueue {
+				queue = append(queue, renderSector{sectorNo: neighbor, sx1: int32(beginx), sx2: int32(endx), ytop: nextYTop, ybottom: nextYBottom})
 			}
 		}
 	}
